@@ -249,7 +249,9 @@ Grouping the 2B models together (Qwen3-VL-2B and Qwen3.5-2B, both trained at seq
 The two mid-size models form the most interesting contrast, since they are run under matched conditions (sequence length 4096, FSDP). Qwen3.5-9B scales nearly flat: 1,443 → 1,414 tokens/s/GPU, i.e. 98% efficiency at 256 GPUs, with per-GPU TFLOPS essentially unchanged (41.9 → 41.0). Qwen3-VL-8B, by contrast, falls from 1,637 to 1,184 tokens/s/GPU (72% efficiency), and its achieved TFLOPS drops from 49.5 to 35.8 — meaning that at scale its GPUs spend an increasing fraction of every step not doing useful compute.
 Because parameter count, sequence length, and parallelization strategy are matched between these two runs, the divergence cannot be attributed to FSDP gradient-sync volume — the vision encoder and projector contribute only a few percent of the synchronized parameters. The more plausible mechanism is rank-level load imbalance and pipeline synchronization inherent to the modular vision path: Qwen3-VL's dynamic-resolution ViT produces a variable number of visual tokens per sample, so per-microbatch compute differs across ranks and the slowest rank sets the step time; as the rank count grows, the worst-case imbalance grows with it. The ViT forward also acts as a separate, unsharded stage that must complete before the language backbone proceeds, exposing the step to inter-node latency. Qwen3.5's native multimodal design presents the trainer with a homogeneous token stream, keeping per-rank compute balanced and free of such barriers — consistent with its near-ideal weak scaling. Disentangling the relative weight of these effects would require per-step profiling of NCCL communication versus idle time.
 
-The code is available in the [repo](https://github.com/shanshanwangcsc/vlm-training/blob/main/README_LUMI.md).
+Maybe need to remove some text above.
+
+The implementation code is available in the [repo](https://github.com/shanshanwangcsc/vlm-training/blob/main/README_LUMI.md).
 ## Acknowledgement 
 We would like to thank ....
 
