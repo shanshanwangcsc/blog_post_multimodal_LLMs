@@ -1,6 +1,7 @@
 # Training Visual Language Models (VLMs) on LUMI
 
 ## Introduction
+
 Large Language Models (LLMs) have transformed the field of artificial intelligence by enabling machines to "understand" and "generate" human language with remarkable performance. Models such as GPT, Llama, Qwen, and Mistral have demonstrated strong capabilities in tasks including text generation, question answering, summarization, translation, and code generation.
 
 Despite their success, traditional LLMs are limited to textual information. Humans, however, interact with the world through multiple modalities, including vision, audio, and language. Many real-world tasks require reasoning across these different forms of information. For example:
@@ -13,14 +14,17 @@ Despite their success, traditional LLMs are limited to textual information. Huma
 These limitations have motivated the development of Multimodal Large Language Models (MLLMs).
 
 ### Multimodal Large Language Models
+
 Multimodal Large Language Models extend traditional LLMs by incorporating additional input, such as images, audio, video or other types of data, beyond text. The model processes these inputs and produces outputs typically in textual form, although some advanced systems can also generate images, audio, or videos.
 
 Compared with text-only LLMs, multimodal models introduce several additional components: vision encoders for processing images; or audio encoders for speech and sound; modality projection layers that align different modalities into a shared embedding space; and cross-modal reasoning mechanisms that enable information fusion across modalities. As a result, MLLMs generally require larger datasets, more complex training pipelines, significantly higher computational resources, and efficient distributed training strategies for large-scale training. Several multimodal models have become widely adopted in both academia and industry such as Qwen-VL series, LLaVA, InternVL etc. In this blog, the experiments are carried out using the simpler version of MLLMs: Visual Language Models.
 
 ### Purpose of This Blog
+
 Training modern multimodal models is computationally expensive, especially when scaling across multiple compute nodes. Understanding scaling performance is critical for maximizing the utilization of large supercomputing systems. In this blog, we investigate the scaling performance of several popular VLMs on the LUMI supercomputer. We evaluate different distributed training frameworks and analyze scaling behavior across varying cluster sizes. The results presented here should be viewed as practical observations and rough performance estimates rather than exhaustive benchmarking studies.
 
 > **Project Context:** This research is conducted as part of the **ELLIOT project** (*European Large Open Multi-Modal Foundation Models for Robust Generalization on Arbitrary Data Streams*), which aims to advance open, multimodal generalist foundation models leveraging European supercomputing infrastructure. ELLIOT is funded by the EU’s Horizon Europe programme (Grant Agreement No. 101214398).
+
 ## Data
 
 In this experiment, we focus on a synthetic image–text dataset generated following the methodology described in the repository available [here](https://github.com/shanshanwangcsc/synth-data-bench-training/blob/main/README_LUMI.md). Using this scheme, we generated a total of 1 million image–text training samples. 
@@ -82,7 +86,7 @@ During training, the image is processed by the vision encoder while the conversa
 
 ## Models
 
-We explored several models from the Qwen ecosystem because of their decent performance and widespread adoption in the research community. The evaluated models include Qwen3-VL-2B-Instruct, Qwen3-VL-8B-Instruct, Qwen3.5-2B and Qwen3.5-9B. The selected model sizes also allow us to observe how scaling behavior changes as model complexity increases.
+  We explored several models from the Qwen ecosystem because of their decent performance and widespread adoption in the research community. The evaluated models include Qwen3-VL-2B-Instruct, Qwen3-VL-8B-Instruct, Qwen3.5-2B and Qwen3.5-9B. The selected model sizes also allow us to observe how scaling behavior changes as model complexity increases.
 
 ## Training 
 ### High-Level Training Workflow of VLMs
@@ -124,44 +128,45 @@ We explored several models from the Qwen ecosystem because of their decent perfo
 
 ### Training Framework
 
-We evaluated several distributed training strategies for large-scale deep learning.
+  We evaluated several distributed training strategies for large-scale deep learning.
 
 #### PyTorch Distributed Data Parallel (DDP)
 
-DDP replicates the full model on each GPU and synchronizes gradients after every training step. It is easy to use and provides strong performance for moderate-sized models. However, it becomes impractical when memory limits are exceeded.
+  DDP replicates the full model on each GPU and synchronizes gradients after every training step. It is easy to use and provides strong performance for moderate-sized models. However, it becomes impractical when memory limits are exceeded.
 
 **Usage:** We use DDP for smaller models, including Qwen3-VL-2B-Instruct and Qwen3.5-2B.
 
 #### Fully Sharded Data Parallel (FSDP)
 
-FSDP shards model parameters, gradients, and optimizer states across GPUs, reducing memory consumption and enabling larger model training. However, it causes higher communication overhead.
+  FSDP shards model parameters, gradients, and optimizer states across GPUs, reducing memory consumption and enabling larger model training. However, it causes higher communication overhead.
 
 **Usage:** We use FSDP for larger models, including Qwen3-VL-8B-Instruct and Qwen3.5-9B.
 
 #### Megatron-LM
-TBA
+  TBA
 ## Results and Analysis
-The experiments were conducted on the LUMI supercomputer, specifically the LUMI-G GPU partition. Each LUMI-G compute node is equipped with:
 
-- 1 × 64-core AMD EPYC 7A53 "Trento" CPU
-- 4 × AMD Instinct MI250X GPU accelerators
-- Each MI250X accelerator contains 2 Graphics Compute Dies (GCDs)
-- Each GCD provides 64 GB of HBM2e memory
+  The experiments were conducted on the LUMI supercomputer, specifically the LUMI-G GPU partition. Each LUMI-G compute node is equipped with:
 
-Therefore, each node provides:
+  - 1 × 64-core AMD EPYC 7A53 "Trento" CPU
+  - 4 × AMD Instinct MI250X GPU accelerators
+  - Each MI250X accelerator contains 2 Graphics Compute Dies (GCDs)
+  - Each GCD provides 64 GB of HBM2e memory
 
-- 8 GCDs (8 GPU devices from the ROCm/Slurm perspective)
-- 512 GB total HBM2e memory (8 × 64 GB)
-- High-bandwidth GPU-to-GPU communication through AMD Infinity Fabric
-- HPE Slingshot-11 high-speed interconnect for multi-node communication
+  Therefore, each node provides:
 
-We evaluated three cluster configurations:
+  - 8 GCDs (8 GPU devices from the ROCm/Slurm perspective)
+  - 512 GB total HBM2e memory (8 × 64 GB)
+  - High-bandwidth GPU-to-GPU communication through AMD Infinity Fabric
+  - HPE Slingshot-11 high-speed interconnect for multi-node communication
 
-- **1 node:** 8 GPU devices (8 GCDs), 512 GB HBM2e memory
-- **16 nodes:** 128 GPU devices (128 GCDs), 8 TB HBM2e memory
-- **32 nodes:** 256 GPU devices (256 GCDs), 16 TB HBM2e memory
+  We evaluated three cluster configurations:
 
-In this experiment, we measure token throughput (tokens per second per GPU) and compute utilization (TFLOPS per GPU) as our metrics. We also track weak scaling efficiency—the red line in the top charts—to evaluate how effectively these models leverage additional hardware when scaling from 8 to 256 GPUs on the LUMI supercomputer. The detailed results are presented in the figures listed below for the different models.
+  - **1 node:** 8 GPU devices (8 GCDs), 512 GB HBM2e memory
+  - **16 nodes:** 128 GPU devices (128 GCDs), 8 TB HBM2e memory
+  - **32 nodes:** 256 GPU devices (256 GCDs), 16 TB HBM2e memory
+
+  In this experiment, we measure token throughput (tokens per second per GPU) and compute utilization (TFLOPS per GPU) as our metrics. We also track weak scaling efficiency—the red line in the top charts—to evaluate how effectively these models leverage additional hardware when scaling from 8 to 256 GPUs on the LUMI supercomputer. The detailed results are presented in the figures listed below for the different models.
 
 **Qwen3-VL-2B-Instruct**
 ![Qwen3-VL-2B-Instruct](Qwen_Qwen3-VL-2B-Instruct.png)
@@ -180,6 +185,7 @@ The two mid-size models form the most interesting contrast, since they are run u
 The implementation code is available in the [repo](https://github.com/shanshanwangcsc/vlm-training/blob/main/README_LUMI.md).
 
 ## Acknowledgement 
-We would like to thank ....
+
+  We would like to thank ....
 
 
