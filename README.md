@@ -19,6 +19,8 @@ Compared with text-only LLMs, multimodal models introduce several additional com
 
 ### Purpose of This Blog
 Training modern multimodal models is computationally expensive, especially when scaling across multiple compute nodes. Understanding scaling performance is critical for maximizing the utilization of large supercomputing systems. In this blog, we investigate the scaling performance of several popular VLMs on the LUMI supercomputer. We evaluate different distributed training frameworks and analyze scaling behavior across varying cluster sizes. The results presented here should be viewed as practical observations and rough performance estimates rather than exhaustive benchmarking studies.
+
+> **Project Context:** This research is conducted as part of the **ELLIOT project** (*European Large Open Multi-Modal Foundation Models for Robust Generalization on Arbitrary Data Streams*), which aims to advance open, multimodal generalist foundation models leveraging European supercomputing infrastructure. ELLIOT is funded by the EU’s Horizon Europe programme (Grant Agreement No. 101214398).
 ## Data
 
 In this experiment, we focus on a synthetic image–text dataset generated following the methodology described in the repository available [here](https://github.com/shanshanwangcsc/synth-data-bench-training/blob/main/README_LUMI.md). Using this scheme, we generated a total of 1 million image–text training samples. 
