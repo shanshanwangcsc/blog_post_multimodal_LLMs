@@ -1,4 +1,5 @@
-# Multimodal Large Language Models Training on LUMI
+# Training Visual Language Models (VLMs) on LUMI
+
 ## Introduction
 Large Language Models (LLMs) have transformed the field of artificial intelligence by enabling machines to "understand" and "generate" human language with remarkable performance. Models such as GPT, Llama, Qwen, and Mistral have demonstrated strong capabilities in tasks including text generation, question answering, summarization, translation, and code generation.
 
@@ -12,23 +13,21 @@ Despite their success, traditional LLMs are limited to textual information. Huma
 These limitations have motivated the development of Multimodal Large Language Models (MLLMs).
 
 ### Multimodal Large Language Models
-Multimodal Large Language Models extend traditional LLMs by incorporating additional input, such as images, audio, video or other type of data, beyond text. The model processes these inputs and produces outputs typically in textual form, although some advanced systems can also generate images, audio, or videos.
+Multimodal Large Language Models extend traditional LLMs by incorporating additional input, such as images, audio, video or other types of data, beyond text. The model processes these inputs and produces outputs typically in textual form, although some advanced systems can also generate images, audio, or videos.
 
-Compared with text-only LLMs, multimodal models introduce several additional components: vision encoders for processing images, or audio encoders for speech and sound. Modality projection layers that align different modalities into a shared embedding space. Cross-modal reasoning mechanisms that enable information fusion across modalities. As a result, MLLMs generally require larger datasets, more complex training pipelines, significantly higher computational resources, efficient distributed training strategies for large-scale training. Several multimodal models have become widely adopted in both academia and industry such as Qwen-VL series, LLaVA , InternVL and etc.
+Compared with text-only LLMs, multimodal models introduce several additional components: vision encoders for processing images; or audio encoders for speech and sound; modality projection layers that align different modalities into a shared embedding space; and cross-modal reasoning mechanisms that enable information fusion across modalities. As a result, MLLMs generally require larger datasets, more complex training pipelines, significantly higher computational resources, and efficient distributed training strategies for large-scale training. Several multimodal models have become widely adopted in both academia and industry such as Qwen-VL series, LLaVA, InternVL etc. In this blog, the experiments are carried out using the simpler version of MLLMs: Visual Language Models.
 
 ### Purpose of This Blog
-Training modern multimodal models is computationally expensive, especially when scaling across multiple compute nodes. Understanding scaling performance is critical for maximizing the utilization of large supercomputing systems. In this blog, we investigate the scaling performance of several popular multimodal models on the LUMI supercomputer. We evaluate different distributed training frameworks and analyze scaling behavior across varying cluster sizes. The results presented here should be viewed as practical observations and rough performance estimates rather than exhaustive benchmarking studies.
+Training modern multimodal models is computationally expensive, especially when scaling across multiple compute nodes. Understanding scaling performance is critical for maximizing the utilization of large supercomputing systems. In this blog, we investigate the scaling performance of several popular VLMs on the LUMI supercomputer. We evaluate different distributed training frameworks and analyze scaling behavior across varying cluster sizes. The results presented here should be viewed as practical observations and rough performance estimates rather than exhaustive benchmarking studies.
 ## Data
 
-In our experiments, we focus on a synthetic image–text dataset generated following the methodology described in the repository available at [here](https://github.com/shanshanwangcsc/synth-data-bench-training/blob/main/README_LUMI.md).
-
-Using this workflow, we generated a total of 1 million image–text training samples. The synthetic dataset provides a controlled environment for benchmarking training throughput and scaling efficiency while avoiding the variability often present in real-world multimodal datasets.
+In this experiment, we focus on a synthetic image–text dataset generated following the methodology described in the repository available [here](https://github.com/shanshanwangcsc/synth-data-bench-training/blob/main/README_LUMI.md). Using this scheme, we generated a total of 1 million image–text training samples. 
 
 ### Data Format and Data Loader
 
 Efficient data storage and loading are critical for large-scale multimodal training. As the number of GPUs increases, the data pipeline can easily become a bottleneck if storage access and preprocessing are not carefully optimized.
 
-For our experiments, the synthetic image–text dataset is stored in the WebDataset format. WebDataset packages samples into multiple tar shards, where each sample consists of an image file and its corresponding metadata stored as a JSON file. This format is widely used for large-scale foundation model training because it enables efficient sequential I/O and minimizes filesystem metadata overhead.
+For this experiment, the synthetic image–text dataset is stored in the *WebDataset* format. WebDataset packages samples into multiple tar shards, where each sample consists of an image file and its corresponding metadata stored as a JSON file. This format is widely used for large-scale foundation model training because it enables efficient sequential I/O and minimizes filesystem metadata overhead.
 
 The dataset structure is organized as follows:
 ```
@@ -46,13 +45,13 @@ sample_00000000.json
 sample_00000999.jpg
 sample_00000999.json
 ```
-Each .jpg and .json pair forms a single multimodal training sample. 
+Each .jpg and .json pair forms a single training sample. 
 
-The WebDataset representation enables purely sequential I/O pipelines, which are particularly beneficial for large-scale deep learning workloads. Compared to random-access file loading, sequential reads can achieve significantly higher throughput on both local storage and distributed filesystems. This approach is especially important when training on hundreds of GPUs, where even small I/O inefficiencies can lead to substantial reductions in overall utilization.
+The WebDataset representation enables purely sequential I/O pipelines, which are particularly beneficial for large-scale deep learning workloads. Compared to random-access file loading, sequential reads can achieve significantly higher throughput on both local storage and distributed filesystems. 
 
-For data loading, we use the Energon dataloader, which provides efficient support for distributed foundation model training. Energon integrates seamlessly with WebDataset and offers automatic sharding, worker balancing, asynchronous prefetching, and scalable data streaming across multiple nodes. These features help ensure that the GPUs remain fully utilized throughout training and that the input pipeline scales together with the compute resources.
+For data loading, we use the Energon dataloader, which provides efficient support for distributed foundation model training. Energon integrates seamlessly with WebDataset. It is easy to blend many different datasets together, and distribute the work across many nodes and processes of a cluster.
 
-### Example Training Sample
+### Example of Training Sample
 
 A typical training sample consists of an image and a corresponding conversational annotation:
 ```
@@ -60,131 +59,66 @@ sample_00000000.jpg
 sample_00000000.json
 ```
 The associated JSON file contains a unique identifier and a conversation pair representing the visual question-answering task:
-```
+```json
 {
   "id": "6916c960-824b-4275-80a1-4874d5ed17e2",
   "conversations": [
     {
       "from": "human",
-      "value": "What is the color of the dog in the picture?"
+      "value": "what color is the dog?"
     },
     {
       "from": "gpt",
-      "value": "The dog is white."
+      "value": "it is white."
     }
   ]
 }
 ```
 
-During training, the image is processed by the vision encoder while the conversation is tokenized and fed into the language model. The model learns to associate visual features extracted from the image with the corresponding textual response, enabling multimodal reasoning and visual question answering.
+During training, the image is processed by the vision encoder while the conversation is tokenized and fed into the language model along with the visual tokens which are generated from the vision encoder. The model learns to associate visual features extracted from the image with the corresponding textual response, enabling multimodal reasoning and visual question answering.
 
 
 ## Models
-We explored several models from the Qwen ecosystem because of their strong performance and widespread adoption in the research community. The evaluated models include Qwen3-VL-2B-Instruct, Qwen3-VL-8B-Instruct, Qwen3.5-2B and Qwen3.5-9B. 
 
-Qwen3-VL series adopts a modular fusion approach, where a separate vision encoder is appended to a text-only language backbone. This requires dedicated projection layers to map visual features into the text embedding space. Instead of bolting vision adapters onto a text base like Qwen3-VL, Qwen3.5 is designed from the ground up for "native multimodality", unifies text and vision into a single native architecture.
-
-
-The selected model sizes also allow us to observe how scaling behavior changes as model complexity increases.
+We explored several models from the Qwen ecosystem because of their decent performance and widespread adoption in the research community. The evaluated models include Qwen3-VL-2B-Instruct, Qwen3-VL-8B-Instruct, Qwen3.5-2B and Qwen3.5-9B. The selected model sizes also allow us to observe how scaling behavior changes as model complexity increases.
 
 ## Training 
-### High-Level Multimodal Training Workflow 
+### High-Level Training Workflow of VLMs
+  ![Overall workflow](Diagram.jpg)
+  The figure above illustrates how a vision–language model is trained on a single image–text example: the question "what color is the dog?" paired with a picture of a dog, with the target answer "it is white". The workflow consists of two parallel encoding paths that are fused before entering the language model.
 
-At a high level, training a Qwen3-VL model follows a pipeline that combines visual feature extraction, multimodal alignment, and language modeling. The goal is to teach the model to understand visual information together with natural language instructions and generate appropriate textual responses.
+- **Text Path** — Tokenization
 
-The workflow consists of the following stages:
+  The question is converted into a sequence of discrete text tokens:
 
-**1. Multimodal Input Preparation**
+  ```
+  [what] [color] [is] [the] [dog]
+  ```
+- **Vision Path** — Patchify + Vision Encoder
 
-Each training sample contains an image together with a text-based instruction or conversation as shown in the data section. The image and text are processed separately before being combined.
+  - Patchify: The image is split into a grid of small patches.
+  - Vision Encoder: The patches are processed by a transformer-based vision encoder. The encoder outputs a sequence of visual tokens that capture the visual content of the image (the dog, its color, its shape, etc.).
 
-**2. Visual Feature Extraction**
+- **Multimodal Fusion**
 
-The input image is first processed by the vision encoder, typically based on architectures such as Vision Transformer (ViT) or SigLIP. The vision encoder divides the image into patches and converts them into a sequence of visual embeddings:
+  The two streams are merged into one unified sequence:
 
-```
-Image
-  │
-  ▼
-Vision Encoder
-  │
-  ▼
-Visual Tokens
-```
+  ```
+  text tokens + visual tokens
+  ```
 
-These visual tokens represent high-level information extracted from the image, such as objects, shapes, textures, and spatial relationships.
+  The visual tokens are inserted into the token stream alongside the text tokens, so that linguistic and visual information live in a single shared representation.
+- **LLM**
 
-**3. Vision-Language Alignment**
+  The fused sequence is fed into the large language model, whose transformer layers jointly attend over both the text tokens and the visual tokens.
+- **Output and Training Objective**
 
-The visual embeddings produced by the vision encoder usually exist in a different feature space from the language model. Therefore, Qwen-VL introduces a multimodal projection or alignment module to transform visual features into the same embedding space used by the language model.
+  The LLM autoregressively predicts the answer tokens:
+  ```
+  [it] [is] [white]
+  ```
 
-```
-Visual Tokens
-      │
-      ▼
-Projection Layer
-      │
-      ▼
-Aligned Visual Embeddings
-```
-
-After this step, visual tokens can be treated similarly to language tokens and processed together by the large language model.
-
-**4. Multimodal Sequence Construction**
-
-The visual embeddings are inserted together with the tokenized text prompt to form a unified multimodal sequence.
-
-Conceptually:
-
-```
-[Image Tokens] + [User Instruction Tokens] + [Assistant Response Tokens]
-```
-
-For example:
-
-```
-<Vision Tokens>
-What is the color of the dog?
-The dog is white.
-```
-
-The language model receives this combined sequence as input and learns the relationship between visual information and language.
-
-**5. Autoregressive Language Modeling**
-
-The Qwen language model backbone processes the multimodal sequence and predicts the assistant response token-by-token. During training, the model is optimized using next-token prediction:
-
-```
-Input:
-<Image> What is the color of the dog?
-
-Target:
-The dog is white.
-```
-
-The model predicts:
-
-```
-The → dog → is → white → .
-```
-
-The difference between predicted tokens and ground-truth tokens is measured using cross-entropy loss.
-
-**6. Loss Calculation and Backpropagation**
-
-Typically, in supervised instruction tuning, the training loss is computed only on the target assistant response tokens. User instructions and image tokens provide context but are not directly optimized.
-
-The gradients are then propagated backward through:
-
-```
-Language Model
-      ↑
-Projection Layer
-      ↑
-Vision Encoder
-```
-
-Depending on the training stage, different components may be frozen or updated. For large-scale multimodal instruction tuning, it is common to train the projection layer and language model while optionally fine-tuning the vision encoder.
+  During training, these predictions are compared against the ground-truth answer "it is white" using a causal language-modeling (cross-entropy) loss. Gradients are back-propagated from the loss to update the vision encoder, the fusion mechanism, and the LLM together.
 
 ### Training Framework
 
@@ -198,20 +132,12 @@ DDP replicates the full model on each GPU and synchronizes gradients after every
 
 #### Fully Sharded Data Parallel (FSDP)
 
-FSDP shards model parameters, gradients, and optimizer states across GPUs, reducing memory consumption and enabling larger model training.
-
-**Advantages:**
-- Lower memory footprint.
-- Supports larger models.
-- Improves scalability for memory-intensive workloads.
-
-**Limitations:**
-- Higher communication overhead.
-- More complex configuration.
+FSDP shards model parameters, gradients, and optimizer states across GPUs, reducing memory consumption and enabling larger model training. However, it causes higher communication overhead.
 
 **Usage:** We use FSDP for larger models, including Qwen3-VL-8B-Instruct and Qwen3.5-9B.
 
-
+#### Megatron-LM
+TBA
 ## Results and Analysis
 The experiments were conducted on the LUMI supercomputer, specifically the LUMI-G GPU partition. Each LUMI-G compute node is equipped with:
 
@@ -233,25 +159,24 @@ We evaluated three cluster configurations:
 - **16 nodes:** 128 GPU devices (128 GCDs), 8 TB HBM2e memory
 - **32 nodes:** 256 GPU devices (256 GCDs), 16 TB HBM2e memory
 
-In this experiment, we measure token throughput (tokens per second per GPU) and compute utilization (TFLOPS per GPU) as our metrics for throughput. We also track weak scaling efficiency—the red line in the top charts—to evaluate how effectively these models leverage additional hardware when scaling from 8 to 256 GPUs on the LUMI supercomputer. The detailed results are presented in the figures listed below for the different models.
+In this experiment, we measure token throughput (tokens per second per GPU) and compute utilization (TFLOPS per GPU) as our metrics. We also track weak scaling efficiency—the red line in the top charts—to evaluate how effectively these models leverage additional hardware when scaling from 8 to 256 GPUs on the LUMI supercomputer. The detailed results are presented in the figures listed below for the different models.
 
-**Qwen3VL-2b**
-![Qwen3VL-2b](Qwen_Qwen3-VL-2B-Instruct.png)
-**Qwen3VL-8b**
-![Qwen3VL-8b](Qwen_Qwen3-VL-8B-Instruct.png)
-**Qwen3.5-2b**
-![Qwen3.5-2b](Qwen_Qwen3.5-2B.png)
-**Qwen3.5-9b**
-![Qwen3.5-9b](Qwen_Qwen3.5-9B.png)
+**Qwen3-VL-2B-Instruct**
+![Qwen3-VL-2B-Instruct](Qwen_Qwen3-VL-2B-Instruct.png)
+**Qwen3-VL-8B-Instruct**
+![Qwen3-VL-8B-Instruct](Qwen_Qwen3-VL-8B-Instruct.png)
+**Qwen3.5-2B**
+![Qwen3.5-2B](Qwen_Qwen3.5-2B.png)
+**Qwen3.5-9B**
+![Qwen3.5-9B](Qwen_Qwen3.5-9B.png)
 
-Grouping the 2B models together (Qwen3-VL-2B and Qwen3.5-2B, both trained at sequence length 8192), we observe that both scale down to roughly 88–89% efficiency at 256 GPUs (VL-2B: 3,414 → 3,026 tokens/s/GPU; 3.5-2B: 2,632 → 2,316 tokens/s/GPU). This is the classic signature of a compute-to-communication imbalance in small models: the per-GPU FLOP count is modest, so the roughly constant cost of synchronizing gradients over the Slingshot fabric consumes a growing share of each step. Notably, Qwen3-VL-2B still posts the highest single-node numbers in this experiment (63.7 TFLOPS/GPU), confirming that the degradation is a scaling artifact rather than a compute deficiency.
+Grouping the 2B models together (Qwen3-VL-2B and Qwen3.5-2B, both trained at sequence length 8192), we observe that both scale down to roughly 88–89% efficiency at 256 GPUs (VL-2B: 3,414 → 3,026 tokens/s/GPU; 3.5-2B: 2,632 → 2,316 tokens/s/GPU). Notably, Qwen3-VL-2B still posts the highest single-node numbers in this experiment (63.7 TFLOPS/GPU).
 
-The two mid-size models form the most interesting contrast, since they are run under matched conditions (sequence length 4096, FSDP). Qwen3.5-9B scales nearly flat: 1,443 → 1,414 tokens/s/GPU, i.e. 98% efficiency at 256 GPUs, with per-GPU TFLOPS essentially unchanged (41.9 → 41.0). Qwen3-VL-8B, by contrast, falls from 1,637 to 1,184 tokens/s/GPU (72% efficiency), and its achieved TFLOPS drops from 49.5 to 35.8 — meaning that at scale its GPUs spend an increasing fraction of every step not doing useful compute.
-Because parameter count, sequence length, and parallelization strategy are matched between these two runs, the divergence cannot be attributed to FSDP gradient-sync volume — the vision encoder and projector contribute only a few percent of the synchronized parameters. The more plausible mechanism is rank-level load imbalance and pipeline synchronization inherent to the modular vision path: Qwen3-VL's dynamic-resolution ViT produces a variable number of visual tokens per sample, so per-microbatch compute differs across ranks and the slowest rank sets the step time; as the rank count grows, the worst-case imbalance grows with it. The ViT forward also acts as a separate, unsharded stage that must complete before the language backbone proceeds, exposing the step to inter-node latency. Qwen3.5's native multimodal design presents the trainer with a homogeneous token stream, keeping per-rank compute balanced and free of such barriers — consistent with its near-ideal weak scaling. Disentangling the relative weight of these effects would require per-step profiling of NCCL communication versus idle time.
+The two mid-size models form the most interesting contrast, since they are run under matched conditions (sequence length 4096, FSDP). Qwen3.5-9B scales nearly flat: 1,443 → 1,414 tokens/s/GPU, i.e. , 98% efficiency at 256 GPUs, with per-GPU TFLOPS essentially unchanged (41.9 → 41.0). Qwen3-VL-8B, by contrast, falls from 1,637 to 1,184 tokens/s/GPU (72% efficiency), and its achieved TFLOPS drops from 49.5 to 35.8.
 
-Maybe need to remove some text above.
 
 The implementation code is available in the [repo](https://github.com/shanshanwangcsc/vlm-training/blob/main/README_LUMI.md).
+
 ## Acknowledgement 
 We would like to thank ....
 
