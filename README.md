@@ -82,7 +82,7 @@ TO BE ADDED
 
 
 <p align="center">
-  <img src="Diagram.png" alt="Overall workflow" width="600">
+  <img src="Diagram.png" alt="Overall workflow" width="700">
 </p>
 
 The figure above shows a simplified view of one training step for a single image–text sample. In the vision path, the image is split into small patches (e.g. 16×16 pixels), and a transformer-based vision encoder (ViT) produces one feature vector per patch. A projector (an MLP merger that also combines neighbouring 2×2 patch features) maps these features into the language model's embedding space, producing the visual tokens. In the text path, the question and answer are formatted with the chat template, which contains an `<image>` placeholder, and are converted into token embeddings by the tokenizer and embedding layer. The visual tokens, enclosed by image start and end markers (`<vs>`, `<ve>`), replace the placeholder, giving one input sequence of visual, prompt and answer tokens. The decoder-only LLM processes this sequence with causal self-attention, so each token attends only to itself and earlier tokens, and the output at each position is trained to predict the next token. The cross-entropy loss is computed only on the answer tokens ("it", "is", "white" and the end-of-sequence token); image and prompt positions are masked. Gradients then flow back from the loss through the LLM, the projector and the vision encoder. The vision encoder adds compute on top of the language model, and the visual tokens lengthen each sequence; both affect throughput.
