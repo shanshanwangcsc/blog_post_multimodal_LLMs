@@ -1,4 +1,4 @@
-# Performance and Scalability Analysis of VLM on LUMI
+# Performance and Scalability Analysis of VLMs on LUMI
 
 ## Introduction
 
