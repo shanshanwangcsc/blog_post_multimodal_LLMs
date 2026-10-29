@@ -1,191 +1,118 @@
-# Training Visual Language Models (VLMs) on LUMI
+# Performance and Scalability Analysis of VLM on LUMI
 
 ## Introduction
 
-Large Language Models (LLMs) have transformed the field of artificial intelligence by enabling machines to "understand" and "generate" human language with remarkable performance. Models such as GPT, Llama, Qwen, and Mistral have demonstrated strong capabilities in tasks including text generation, question answering, summarization, translation, and code generation.
+Vision Language Models (VLMs) extend Large Language Models (LLMs) with a vision encoder and a projection layer that maps image features into the language model's embedding space. The model can then reason jointly over images and text, for example answering questions about an image. Widely used open VLM families include Qwen-VL, LLaVA and InternVL.
 
-Despite their success, traditional LLMs are limited to textual information. Humans, however, interact with the world through multiple modalities, including vision, audio, and language. Many real-world tasks require reasoning across these different forms of information. For example:
+The extra vision components, and the longer input sequences created by visual tokens, make VLM training more expensive than text-only LLM training. At that cost, two questions decide how well a supercomputer is used:
 
-- Understanding an image and answering questions about it.
-- Describing a video in natural language.
-- Interpreting speech and generating textual responses.
-- Combining visual and textual information to perform complex reasoning.
+1. **Performance:** how much useful work each GPU delivers, measured as **training throughput** in tokens per second per GPU and **achieved compute** in TFLOP/s per GPU.
+2. **Scalability:** how that per-GPU performance holds up as the job grows from **1 node to 16 and 32 nodes**.
 
-These limitations have motivated the development of Multimodal Large Language Models (MLLMs).
+This post reports four Qwen vision language models trained on the LUMI supercomputer. The results are practical observations from a fixed setup, not an exhaustive benchmark study, and they should be read as rough performance estimates.
 
-### Multimodal Large Language Models
+## Metrics
 
-Multimodal Large Language Models extend traditional LLMs by incorporating additional input, such as images, audio, video or other types of data, beyond text. The model processes these inputs and produces outputs typically in textual form, although some advanced systems can also generate images, audio, or videos.
+| Metric | Definition | What it tells us |
+|---|---|---|
+| **Tokens/s/GPU** | Training tokens processed per second, divided by the number of GPUs (GCDs) | Throughput seen by the user |
+| **Aggregate tokens/s** | Tokens/s/GPU × number of GPUs | Throughput of the whole job |
+| **TFLOP/s per GPU** | Floating-point operations executed per second per GPU | How hard the hardware is being worked|
+| **MFU** (Model FLOPs Utilization) | Achieved TFLOP/s per GPU ÷ peak TFLOP/s per GPU | Fraction of the theoretical peak actually used |
+| **Weak scaling efficiency** | $$ E_{\text{weak}} = \frac{T_1}{T_p} \times 100\% $$| how execution time changes as the problem size and number of processors increase proportionally, keeping the workload per processor constant |
 
-Compared with text-only LLMs, multimodal models introduce several additional components: vision encoders for processing images; or audio encoders for speech and sound; modality projection layers that align different modalities into a shared embedding space; and cross-modal reasoning mechanisms that enable information fusion across modalities. As a result, MLLMs generally require larger datasets, more complex training pipelines, significantly higher computational resources, and efficient distributed training strategies for large-scale training. Several multimodal models have become widely adopted in both academia and industry such as Qwen-VL series, LLaVA, InternVL etc. In this blog, the experiments are carried out using the simpler version of MLLMs: Visual Language Models.
+All runs are **weak scaling** experiments: the per-GPU workload (sequence length and micro-batch) is held constant, so the global batch grows with the number of GPUs. 
 
-### Purpose of This Blog
+## System: LUMI-G
 
-Training modern multimodal models is computationally expensive, especially when scaling across multiple compute nodes. Understanding scaling performance is critical for maximizing the utilization of large supercomputing systems. In this blog, we investigate the scaling performance of several popular VLMs on the LUMI supercomputer. We evaluate different distributed training frameworks and analyze scaling behavior across varying cluster sizes. The results presented here should be viewed as practical observations and rough performance estimates rather than exhaustive benchmarking studies.
+All experiments ran on LUMI-G, the GPU partition of the LUMI supercomputer. Each LUMI-G node has:
 
-> **Project Context:** This research is conducted as part of the **ELLIOT project** (*European Large Open Multi-Modal Foundation Models for Robust Generalization on Arbitrary Data Streams*), which aims to advance open, multimodal generalist foundation models leveraging European supercomputing infrastructure. ELLIOT is funded by the EU’s Horizon Europe programme (Grant Agreement No. 101214398).
+- 1 × 64-core AMD EPYC 7A53 "Trento" CPU
+- 4 × AMD Instinct MI250X accelerators, each with 2 Graphics Compute Dies (GCDs), giving **8 GCDs per node**; each GCD appears as a separate GPU to Slurm
+- 64 GB HBM2e per GCD, **512 GB GPU memory per node**
+- AMD Infinity Fabric links between GCDs within a node
+- 4 × HPE Slingshot-11 network interfaces (200 Gb/s each, one per MI250X) for inter-node communication
 
-## Data
+Throughout this post, "GPU" means one GCD. The theoretical peak dense FP16/BF16 matrix throughput of an MI250X is 383 TFLOP/s, or about **191.5 TFLOP/s per GCD**; this is the reference used for the MFU values below.
 
-In this experiment, we focus on a synthetic image–text dataset generated following the methodology described in the repository available [here](https://github.com/shanshanwangcsc/synth-data-bench-training/blob/main/README_LUMI.md). Using this scheme, we generated a total of 1 million image–text training samples. 
 
-### Data Format and Data Loader
+The communication hierarchy matters for scaling. Within a node, GPU-to-GPU communication uses AMD Infinity Fabric, while communication between nodes traverses the HPE Slingshot network. Distributed collectives such as all-reduce, all-gather, and reduce-scatter may therefore incur additional inter-node communication costs when a job spans multiple nodes. Because inter-node communication generally offers less bandwidth and higher latency than local GPU interconnects, scaling from 1 to 16 nodes can introduce an additional communication overhead.
 
-Efficient data storage and loading are critical for large-scale multimodal training. As the number of GPUs increases, the data pipeline can easily become a bottleneck if storage access and preprocessing are not carefully optimized.
+Three configurations were tested:
 
-For this experiment, the synthetic image–text dataset is stored in the *WebDataset* format. WebDataset packages samples into multiple tar shards, where each sample consists of an image file and its corresponding metadata stored as a JSON file. This format is widely used for large-scale foundation model training because it enables efficient sequential I/O and minimizes filesystem metadata overhead.
+| Nodes | GPUs (GCDs) | Total GPU memory |
+|---|---|---|
+| 1 | 8 | 512 GB |
+| 16 | 128 | 8 TB |
+| 32 | 256 | 16 TB |
 
-The dataset structure is organized as follows:
-```
-data/
-├── shard-000000.tar
-├── shard-000001.tar
-├── ...
-└── shard-000999.tar
-```
-The dataset contains 1,000 tar shards in total. Each shard contains 1,000 training samples, organized as image–JSON pairs:
-```
-sample_00000000.jpg
-sample_00000000.json
-...
-sample_00000999.jpg
-sample_00000999.json
-```
-Each .jpg and .json pair forms a single training sample. 
+## Experimental Setup
 
-The WebDataset representation enables purely sequential I/O pipelines, which are particularly beneficial for large-scale deep learning workloads. Compared to random-access file loading, sequential reads can achieve significantly higher throughput on both local storage and distributed filesystems. 
+### Data and data loading
 
-For data loading, we use the Energon dataloader, which provides efficient support for distributed foundation model training. Energon integrates seamlessly with WebDataset. It is easy to blend many different datasets together, and distribute the work across many nodes and processes of a cluster.
+The models were trained on 1 million synthetic image–text visual question answering samples, generated with the method described [here](https://github.com/shanshanwangcsc/synth-data-bench-training/blob/main/README_LUMI.md). Each sample is an image paired with a short conversation, for example:
 
-### Example of Training Sample
-
-A typical training sample consists of an image and a corresponding conversational annotation:
-```
-sample_00000000.jpg
-sample_00000000.json
-```
-The associated JSON file contains a unique identifier and a conversation pair representing the visual question-answering task:
 ```json
 {
   "id": "6916c960-824b-4275-80a1-4874d5ed17e2",
   "conversations": [
-    {
-      "from": "human",
-      "value": "what color is the dog?"
-    },
-    {
-      "from": "gpt",
-      "value": "it is white."
-    }
+    {"from": "human", "value": "what color is the dog?"},
+    {"from": "gpt", "value": "it is white."}
   ]
 }
 ```
 
-During training, the image is processed by the vision encoder while the conversation is tokenized and fed into the language model along with the visual tokens which are generated from the vision encoder. The model learns to associate visual features extracted from the image with the corresponding textual response, enabling multimodal reasoning and visual question answering.
+At scale, the input pipeline can limit throughput just as much as compute or communication. To keep it from becoming the bottleneck:
 
+- The data is stored in **WebDataset** format: 1,000 tar shards of 1,000 samples each (`shard-000000.tar` … `shard-000999.tar`), each sample being a `.jpg` + `.json` pair. Large sequential reads from a few big files avoid the metadata overhead of millions of small files on the Lustre parallel filesystem.
+- The **Energon dataloader** is optimized for high-speed multi-rank training and can handle very large datasets
 
-## Models
+### Models
 
-  We explored several models from the Qwen ecosystem because of their decent performance and widespread adoption in the research community. The evaluated models include Qwen3-VL-2B-Instruct, Qwen3-VL-8B-Instruct, Qwen3.5-2B and Qwen3.5-9B. The selected model sizes also allow us to observe how scaling behavior changes as model complexity increases.
+Four models from the Qwen family were evaluated, covering two size classes and two model generations: Qwen3-VL-2B-Instruct, Qwen3.5-2B, Qwen3-VL-8B-Instruct and Qwen3.5-9B.
 
-## Training 
-### High-Level Training Workflow of VLMs
-  ![Overall workflow](Diagram.jpg)
-  The figure above illustrates how a vision–language model is trained on a single image–text example: the question "what color is the dog?" paired with a picture of a dog, with the target answer "it is white". The workflow consists of two parallel encoding paths that are fused before entering the language model.
+### Training frameworks
 
-- **Text Path** — Tokenization
+- **Distributed Data Parallel (DDP)** keeps a full copy of the model, gradients and optimizer states on every GPU. It is simple and efficient as long as the full training state fits in GPU memory, which is the case for the 2B models.
+- **Fully Sharded Data Parallel (FSDP)** shards parameters, gradients and optimizer states across GPUs. This lowers the memory footprint enough to train the 8–9B models, at the cost of more communication.
+- **Megatron-LM**
+TO BE ADDED
 
-  The question is converted into a sequence of discrete text tokens:
+### Overall workflow
 
-  ```
-  [what] [color] [is] [the] [dog]
-  ```
-- **Vision Path** — Patchify + Vision Encoder
+![Overall workflow](Diagram.png)
 
-  - Patchify: The image is split into a grid of small patches.
-  - Vision Encoder: The patches are processed by a transformer-based vision encoder. The encoder outputs a sequence of visual tokens that capture the visual content of the image (the dog, its color, its shape, etc.).
+The figure above shows a simplified view of one training step for a single image–text sample. In the vision path, the image is split into small patches (e.g. 16×16 pixels), and a transformer-based vision encoder (ViT) produces one feature vector per patch. A projector (an MLP merger that also combines neighbouring 2×2 patch features) maps these features into the language model's embedding space, producing the visual tokens. In the text path, the question and answer are formatted with the chat template, which contains an `<image>` placeholder, and are converted into token embeddings by the tokenizer and embedding layer. The visual tokens, enclosed by image start and end markers (`<vs>`, `<ve>`), replace the placeholder, giving one input sequence of visual, prompt and answer tokens. The decoder-only LLM processes this sequence with causal self-attention, so each token attends only to itself and earlier tokens, and the output at each position is trained to predict the next token. The cross-entropy loss is computed only on the answer tokens ("it", "is", "white" and the end-of-sequence token); image and prompt positions are masked. Gradients then flow back from the loss through the LLM, the projector and the vision encoder. The vision encoder adds compute on top of the language model, and the visual tokens lengthen each sequence; both affect throughput.
 
-- **Multimodal Fusion**
+## Results
 
-  The two streams are merged into one unified sequence:
-
-  ```
-  text tokens + visual tokens
-  ```
-
-  The visual tokens are inserted into the token stream alongside the text tokens, so that linguistic and visual information live in a single shared representation.
-- **LLM**
-
-  The fused sequence is fed into the large language model, whose transformer layers jointly attend over both the text tokens and the visual tokens.
-- **Output and Training Objective**
-
-  The LLM autoregressively predicts the answer tokens:
-  ```
-  [it] [is] [white]
-  ```
-
-  During training, these predictions are compared against the ground-truth answer "it is white" using a causal language-modeling (cross-entropy) loss. Gradients are back-propagated from the loss to update the vision encoder, the fusion mechanism, and the LLM together.
-
-### Training Framework
-
-  We evaluated several distributed training strategies for large-scale deep learning.
-
-#### PyTorch Distributed Data Parallel (DDP)
-
-  DDP replicates the full model on each GPU and synchronizes gradients after every training step. It is easy to use and provides strong performance for moderate-sized models. However, it becomes impractical when memory limits are exceeded.
-
-**Usage:** We use DDP for smaller models, including Qwen3-VL-2B-Instruct and Qwen3.5-2B.
-
-#### Fully Sharded Data Parallel (FSDP)
-
-  FSDP shards model parameters, gradients, and optimizer states across GPUs, reducing memory consumption and enabling larger model training. However, it causes higher communication overhead.
-
-**Usage:** We use FSDP for larger models, including Qwen3-VL-8B-Instruct and Qwen3.5-9B.
-
-#### Megatron-LM
-  TBA
-## Results and Analysis
-
-  The experiments were conducted on the LUMI supercomputer, specifically the LUMI-G GPU partition. Each LUMI-G compute node is equipped with:
-
-  - 1 × 64-core AMD EPYC 7A53 "Trento" CPU
-  - 4 × AMD Instinct MI250X GPU accelerators
-  - Each MI250X accelerator contains 2 Graphics Compute Dies (GCDs)
-  - Each GCD provides 64 GB of HBM2e memory
-
-  Therefore, each node provides:
-
-  - 8 GCDs (8 GPU devices from the ROCm/Slurm perspective)
-  - 512 GB total HBM2e memory (8 × 64 GB)
-  - High-bandwidth GPU-to-GPU communication through AMD Infinity Fabric
-  - HPE Slingshot-11 high-speed interconnect for multi-node communication
-
-  We evaluated three cluster configurations:
-
-  - **1 node:** 8 GPU devices (8 GCDs), 512 GB HBM2e memory
-  - **16 nodes:** 128 GPU devices (128 GCDs), 8 TB HBM2e memory
-  - **32 nodes:** 256 GPU devices (256 GCDs), 16 TB HBM2e memory
-
-  In this experiment, we measure token throughput (tokens per second per GPU) and compute utilization (TFLOPS per GPU) as our metrics. We also track weak scaling efficiency—the red line in the top charts—to evaluate how effectively these models leverage additional hardware when scaling from 8 to 256 GPUs on the LUMI supercomputer. The detailed results are presented in the figures listed below for the different models.
+In each figure below, the top panel shows aggregate throughput (blue: measured; orange dashed: ideal linear scaling) and weak scaling efficiency (red, right axis). The bottom panel shows TFLOP/s per GPU (green bars) and tokens/s/GPU (purple line).
 
 **Qwen3-VL-2B-Instruct**
 ![Qwen3-VL-2B-Instruct](Qwen_Qwen3-VL-2B-Instruct.png)
-**Qwen3-VL-8B-Instruct**
-![Qwen3-VL-8B-Instruct](Qwen_Qwen3-VL-8B-Instruct.png)
+
 **Qwen3.5-2B**
 ![Qwen3.5-2B](Qwen_Qwen3.5-2B.png)
+
+**Qwen3-VL-8B-Instruct**
+![Qwen3-VL-8B-Instruct](Qwen_Qwen3-VL-8B-Instruct.png)
+
 **Qwen3.5-9B**
 ![Qwen3.5-9B](Qwen_Qwen3.5-9B.png)
 
-Grouping the 2B models together (Qwen3-VL-2B and Qwen3.5-2B, both trained at sequence length 8192), we observe that both scale down to roughly 88–89% efficiency at 256 GPUs (VL-2B: 3,414 → 3,026 tokens/s/GPU; 3.5-2B: 2,632 → 2,316 tokens/s/GPU). Notably, Qwen3-VL-2B still posts the highest single-node numbers in this experiment (63.7 TFLOPS/GPU).
 
-The two mid-size models form the most interesting contrast, since they are run under matched conditions (sequence length 4096, FSDP). Qwen3.5-9B scales nearly flat: 1,443 → 1,414 tokens/s/GPU, i.e. , 98% efficiency at 256 GPUs, with per-GPU TFLOPS essentially unchanged (41.9 → 41.0). Qwen3-VL-8B, by contrast, falls from 1,637 to 1,184 tokens/s/GPU (72% efficiency), and its achieved TFLOPS drops from 49.5 to 35.8.
+### Key takeaways
 
+- **Per-GPU performance within one node** for these VLMs ranges from about 42 to 64 TFLOP/s per GCD (22–33% MFU), with 1.2–3.4 K tokens/s/GPU depending on model size.
+- **Scaling to 32 nodes (256 GCDs) works well** for all four models, with 72–98% weak scaling efficiency and up to 775 K tokens/s aggregate throughput.
 
-The implementation code is available in the [repo](https://github.com/shanshanwangcsc/vlm-training/blob/main/README_LUMI.md).
+## Code
 
-## Acknowledgement 
+The training code and LUMI job scripts are available in the [vlm-training repository](https://github.com/shanshanwangcsc/vlm-training/blob/main/README_LUMI.md).
 
-  We would like to thank ....
+## Acknowledgement
 
+We would like to thank Tomas Ockier Poblet from CVC (Computer Vision Center) for providing the synthetic data. 
 
+> **Project Context** 
+This research is conducted as part of the **ELLIOT project** (*European Large Open Multi-Modal Foundation Models for Robust Generalization on Arbitrary Data Streams*), which aims to advance open, multimodal generalist foundation models leveraging European supercomputing infrastructure. ELLIOT is funded by the EU's Horizon Europe programme (Grant Agreement No. 101214398).
