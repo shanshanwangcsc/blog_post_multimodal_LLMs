@@ -115,7 +115,7 @@ The training code and LUMI job scripts are available in the [vlm-training reposi
 
 ## Acknowledgement
 
-We would like to thank Tomas Ockier Poblet from CVC (Computer Vision Center) for providing the synthetic data. 
+We would like to thank Tomas Ockier Poblet from CVC (Computer Vision Center) for providing the synthetic data generation code. 
 
 > **Project Context** 
-This research is conducted as part of the **ELLIOT project** (*European Large Open Multi-Modal Foundation Models for Robust Generalization on Arbitrary Data Streams*), which aims to advance open, multimodal generalist foundation models leveraging European supercomputing infrastructure. ELLIOT is funded by the EU's Horizon Europe programme (Grant Agreement No. 101214398).
+This research is conducted as part of the **ELLIOT project** (*European Large Open Multi-Modal Foundation Models for Robust Generalization on Arbitrary Data Streams*), which aims to advance open, multimodal generalist foundation models leveraging European supercomputing infrastructure. ELLIOT is funded by the EU's Horizon Europe programme.
