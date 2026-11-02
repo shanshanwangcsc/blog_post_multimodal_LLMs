@@ -1,4 +1,4 @@
-# Performance and Scalability Analysis of VLMs on LUMI
+# Throughput and Scalability Analysis of VLMs on LUMI
 
 ## Introduction
 
@@ -6,8 +6,8 @@ Vision Language Models (VLMs) extend Large Language Models (LLMs) with a vision 
 
 The extra vision components, and the longer input sequences created by visual tokens, make VLM training more expensive than text-only LLM training. At that cost, two questions decide how well a supercomputer is used:
 
-1. **Performance:** how much useful work each GPU delivers, measured as **training throughput** in tokens per second per GPU and **achieved compute** in TFLOP/s per GPU.
-2. **Scalability:** how that per-GPU performance holds up as the job grows from **1 node to 16 and 32 nodes**.
+1. **Throughput:** how much useful work each GPU delivers, measured as in tokens per second per GPU and TFLOP/s per GPU.
+2. **Scalability:** how that per-GPU throughput holds up as the job grows from **1 node to 16 and 32 nodes**.
 
 This post reports four Qwen vision language models trained on the LUMI supercomputer. The results are practical observations from a fixed setup, not an exhaustive benchmark study, and they should be read as rough performance estimates.
 
@@ -16,7 +16,7 @@ This post reports four Qwen vision language models trained on the LUMI supercomp
 | Metric | Definition | What it tells us |
 |---|---|---|
 | **Tokens/s/GPU** | Training tokens processed per second, divided by the number of GPUs (GCDs) | Throughput seen by the user |
-| **Aggregate tokens/s** | Tokens/s/GPU × number of GPUs | Throughput of the whole job |
+| **Aggregated tokens/s** | Tokens/s/GPU × number of GPUs | Throughput of the whole job |
 | **TFLOP/s per GPU** | Floating-point operations executed per second per GPU | How hard the hardware is being worked|
 | **MFU** (Model FLOPs Utilization) | Achieved TFLOP/s per GPU ÷ peak TFLOP/s per GPU | Fraction of the theoretical peak actually used |
 | **Weak scaling efficiency** | $E_{\text{weak}} = \frac{S_n}{n \times S_1} \times 100\%$ <br>*(where S<sub>n</sub> is aggregate throughput on n nodes, and S<sub>1</sub> is throughput on 1 node)* | Measures how well per-GPU throughput is maintained as the number of nodes and the global batch size increase proportionally. |
