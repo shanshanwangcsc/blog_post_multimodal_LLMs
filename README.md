@@ -7,7 +7,7 @@ Vision Language Models (VLMs) extend Large Language Models (LLMs) with a vision 
 The extra vision components, and the longer input sequences created by visual tokens, make VLM training more expensive than text-only LLM training. At that cost, two questions decide how well a supercomputer is used:
 
 1. **Throughput:** how much useful work each GPU delivers, measured as in tokens per second per GPU and TFLOP/s per GPU.
-2. **Scalability:** how that per-GPU throughput holds up as the job grows from **1 node to 16 and 32 nodes**.
+2. **Scalability:** how that per-GPU throughput holds up as the job grows from 1 node to hundreds or even thousands of nodes.
 
 This post reports four Qwen vision language models trained on the LUMI supercomputer. The results are practical observations from a fixed setup, not an exhaustive benchmark study, and they should be read as rough performance estimates.
 
