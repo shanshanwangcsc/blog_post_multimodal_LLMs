@@ -19,7 +19,7 @@ This post reports four Qwen vision language models trained on the LUMI supercomp
 | **Aggregate tokens/s** | Tokens/s/GPU × number of GPUs | Throughput of the whole job |
 | **TFLOP/s per GPU** | Floating-point operations executed per second per GPU | How hard the hardware is being worked|
 | **MFU** (Model FLOPs Utilization) | Achieved TFLOP/s per GPU ÷ peak TFLOP/s per GPU | Fraction of the theoretical peak actually used |
-| **Weak scaling efficiency** | $E_{\text{weak}} = \frac{S_n}{n \times S_1} \times 100\%$ <br>*(where $S_n$ is aggregate throughput on $n$ nodes, and $S_1$ is throughput on 1 node)* | Measures how well per-GPU throughput is maintained as the number of nodes and the global batch size increase proportionally. |
+| **Weak scaling efficiency** | $E_{\text{weak}} = \frac{S_n}{n \times S_1} \times 100\%$ <br>*(where S<sub>n</sub> is aggregate throughput on n nodes, and S<sub>1</sub> is throughput on 1 node)* | Measures how well per-GPU throughput is maintained as the number of nodes and the global batch size increase proportionally. |
 
 
 All runs are **weak scaling** experiments: the per-GPU workload (sequence length and micro-batch) is held constant, so the global batch grows with the number of GPUs. 
